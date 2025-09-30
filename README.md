@@ -41,3 +41,8 @@ Key bindings inside the UI:
 - `PgUp` / `PgDn` (or `u` / `d`) — page through channel columns when the module has more than four channels
 - `N` — show or hide the info overlay
 - `Q` — quit the program
+
+
+### TODO
+add crossplatform support (windows and mac)
+uhhh idk
