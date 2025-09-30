@@ -444,28 +444,30 @@ void Ui::draw_info_overlay(const TransportState &state) {
 
     const auto &message_lines = player_.module_message_lines();
     if (!message_lines.empty() && info_row < bottom - 2) {
-        int available = bottom - info_row - 2;
-        int max_message_lines = std::min(available, 6);
-        attron(A_UNDERLINE);
-        mvprintw(info_row++, left + 2, "Message:");
-        attroff(A_UNDERLINE);
-        int max_line_len = std::max(8, width - 6);
-        for (int i = 0; i < max_message_lines && info_row < bottom - 2; ++i) {
-            std::string line = message_lines[static_cast<std::size_t>(i)];
-            if (static_cast<int>(line.size()) > max_line_len) {
-                if (max_line_len > 1) {
-                    line = line.substr(0, max_line_len - 1) + "…";
-                } else {
-                    line = line.substr(0, max_line_len);
+        int available = std::max(0, bottom - info_row - 2);
+        int max_message_lines = std::min({available, 6, static_cast<int>(message_lines.size())});
+        if (max_message_lines > 0) {
+            attron(A_UNDERLINE);
+            mvprintw(info_row++, left + 2, "Message:");
+            attroff(A_UNDERLINE);
+            int max_line_len = std::max(8, width - 6);
+            for (int i = 0; i < max_message_lines && info_row < bottom - 2; ++i) {
+                std::string line = message_lines[static_cast<std::size_t>(i)];
+                if (static_cast<int>(line.size()) > max_line_len) {
+                    if (max_line_len > 1) {
+                        line = line.substr(0, max_line_len - 1) + "…";
+                    } else {
+                        line = line.substr(0, max_line_len);
+                    }
                 }
+                mvprintw(info_row++, left + 4, "%s", line.c_str());
             }
-            mvprintw(info_row++, left + 4, "%s", line.c_str());
-        }
-        if (static_cast<int>(message_lines.size()) > max_message_lines && info_row < bottom - 2) {
-            mvprintw(info_row++, left + 4, "... (%zu more lines)", message_lines.size() - max_message_lines);
-        }
-        if (info_row < bottom - 2) {
-            ++info_row;
+            if (static_cast<int>(message_lines.size()) > max_message_lines && info_row < bottom - 2) {
+                mvprintw(info_row++, left + 4, "... (%zu more lines)", message_lines.size() - static_cast<std::size_t>(max_message_lines));
+            }
+            if (info_row < bottom - 2) {
+                ++info_row;
+            }
         }
     }
 
