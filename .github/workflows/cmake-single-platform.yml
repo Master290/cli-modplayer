@@ -1,0 +1,33 @@
+name: CMake on a single platform
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  BUILD_TYPE: Release
+  BUILD_DIR: ${{ github.workspace }}/build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config libopenmpt-dev portaudio19-dev libncursesw5-dev
+
+      - name: Configure CMake
+        run: cmake -S ${{ github.workspace }} -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+      - name: Build
+        run: cmake --build ${{ env.BUILD_DIR }} --config ${{ env.BUILD_TYPE }}
+
+      - name: Test
+        working-directory: ${{ env.BUILD_DIR }}
+        run: ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
