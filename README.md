@@ -1,4 +1,4 @@
-# cli-tracker
+# cli-modplayer
 
 A console MOD tracker player for Linux inspired by tools like ProTracker. The app streams audio through PortAudio, loads songs with libopenmpt, and shows a live channel grid in the terminal using ncurses.
 [Watch the showcase video](https://www.youtube.com/watch?v=CXP1AppBVT4)
