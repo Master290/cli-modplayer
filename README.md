@@ -33,6 +33,9 @@ cmake --build build
 ./build/modtracker /path/to/song.mod
 ```
 
+Or you can download one of the prebuilt binaries in the "Releases"
+Or download one from GitHub workflow artifacts.
+
 Key bindings inside the UI:
 
 - `Space` — pause or resume playback
