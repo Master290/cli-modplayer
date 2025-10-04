@@ -221,10 +221,10 @@ void Ui::draw(const TransportState &state) {
 
 void Ui::draw_header(const TransportState &state) {
     attron(COLOR_PAIR(1) | A_BOLD);
-    mvprintw(0, 0, "cli-tracker");
+    mvprintw(0, 0, "cli-modplayer");
     attroff(A_BOLD);
     attron(A_DIM);
-    mvprintw(0, 13, "github.com/Master290/cli-tracker");
+    mvprintw(0, 13, "github.com/Master290/cli-modplayer");
     attroff(A_DIM);
     attroff(COLOR_PAIR(1));
 
