@@ -1,39 +1,53 @@
 #include "player.hpp"
 #include "ui.hpp"
+#include "config.hpp"
+#include "file_browser_ui.hpp"
+#include "simple_ui.hpp"
 
 #include <exception>
 #include <filesystem>
 #include <iostream>
-#include <ncurses.h>
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: modtracker <module-file>" << std::endl;
-        return 1;
+    std::filesystem::path module_path;
+    bool simple_mode = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--simple") simple_mode = true;
+        else if (arg[0] != '-') module_path = arg;
     }
-
-    std::filesystem::path module_path = argv[1];
+    if (module_path.empty()) {
+        auto selected = tracker::run_file_browser_ui(std::filesystem::current_path());
+        if (!selected) {
+            std::cout << "No file selected. Exiting." << std::endl;
+            return 0;
+        }
+        module_path = *selected;
+    }
     if (!std::filesystem::exists(module_path)) {
         std::cerr << "File not found: " << module_path << std::endl;
         return 1;
     }
-
     try {
+        tracker::Config config;
         tracker::Player player(module_path.string());
+        player.set_volume(config.get_volume());
         player.start();
-
-        tracker::Ui ui(player);
-        ui.run();
-
+        if (simple_mode) {
+            tracker::SimpleUi simple_ui(player);
+            simple_ui.run();
+        } else {
+            std::string module_name = module_path.stem().string();
+            tracker::Ui ui(player, config, module_name);
+            ui.run();
+        }
         player.stop();
+        config.save();
         return 0;
     } catch (const std::exception &ex) {
-        endwin();
         std::cerr << "Fatal error: " << ex.what() << std::endl;
     } catch (...) {
-        endwin();
         std::cerr << "Unknown error occurred." << std::endl;
     }
-
     return 1;
 }

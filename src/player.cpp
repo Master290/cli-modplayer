@@ -2,15 +2,60 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <fstream>
 #include <iostream>
+#include <numbers>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <unistd.h>
+#include <fcntl.h>
 
 namespace tracker {
 
 namespace {
+
+class SuppressStderr {
+public:
+    SuppressStderr() {
+        fflush(stderr);
+        old_stderr_ = dup(STDERR_FILENO);
+        int devnull = open("/dev/null", O_WRONLY);
+        dup2(devnull, STDERR_FILENO);
+        close(devnull);
+    }
+    
+    ~SuppressStderr() {
+        fflush(stderr);
+        dup2(old_stderr_, STDERR_FILENO);
+        close(old_stderr_);
+    }
+private:
+    int old_stderr_;
+};
+
+void fft(std::vector<std::complex<float>>& data) {
+    const std::size_t n = data.size();
+    if (n <= 1) return;
+
+    std::vector<std::complex<float>> even(n / 2);
+    std::vector<std::complex<float>> odd(n / 2);
+    for (std::size_t i = 0; i < n / 2; ++i) {
+        even[i] = data[i * 2];
+        odd[i] = data[i * 2 + 1];
+    }
+
+    fft(even);
+    fft(odd);
+
+    for (std::size_t k = 0; k < n / 2; ++k) {
+        auto t = std::polar(1.0f, -2.0f * std::numbers::pi_v<float> * static_cast<float>(k) / static_cast<float>(n)) * odd[k];
+        data[k] = even[k] + t;
+        data[k + n / 2] = even[k] - t;
+    }
+}
+
 constexpr int CHANNEL_DISPLAY_WIDTH = 24;
 
 std::vector<std::string> read_instrument_names(openmpt::module &module) {
@@ -58,7 +103,15 @@ std::vector<std::string> split_lines(const std::string &text, std::size_t max_li
 }
 
 Player::Player(const std::string &path, int sample_rate, int buffer_size)
-    : sample_rate_(sample_rate), buffer_size_(buffer_size) {
+    : sample_rate_(sample_rate), 
+      buffer_size_(buffer_size),
+      audio_effects_(std::make_unique<AudioEffects>(sample_rate)),
+      fft_buffer_(kFFTSize),
+      fft_write_pos_(0),
+      spectrum_bands_(kSpectrumBands, 0.0),
+      waveform_buffer_left_(kWaveformSize, 0.0f),
+      waveform_buffer_right_(kWaveformSize, 0.0f),
+      waveform_write_pos_(0) {
     std::ifstream file(path, std::ios::binary);
     if (!file) {
         throw std::runtime_error("Unable to open module file: " + path);
@@ -92,9 +145,13 @@ Player::Player(const std::string &path, int sample_rate, int buffer_size)
         module_message_lines_ = split_lines(message, 256);
     }
 
-    PaError err = Pa_Initialize();
-    if (err != paNoError) {
-        throw std::runtime_error(std::string("Failed to initialize PortAudio: ") + Pa_GetErrorText(err));
+    PaError err;
+    {
+        SuppressStderr suppress;
+        err = Pa_Initialize();
+        if (err != paNoError) {
+            throw std::runtime_error(std::string("Failed to initialize PortAudio: ") + Pa_GetErrorText(err));
+        }
     }
     pa_initialized_ = true;
 
@@ -109,9 +166,31 @@ Player::Player(const std::string &path, int sample_rate, int buffer_size)
     if (title_.empty()) {
         title_ = path;
     }
+    
+    artist_ = module_->get_metadata("artist");
+    if (artist_.empty()) {
+        artist_ = "Unknown";
+    }
+    
+    module_type_ = module_->get_metadata("type");
+    if (module_type_.empty()) {
+        module_type_ = module_->get_metadata("type_long");
+    }
+    if (module_type_.empty()) {
+        module_type_ = "Unknown";
+    }
+    
+    date_ = module_->get_metadata("date");
+    
+    num_channels_ = module_->get_num_channels();
+    num_instruments_ = module_->get_num_instruments();
+    num_samples_ = module_->get_num_samples();
+    num_patterns_ = module_->get_num_patterns();
+    num_orders_ = module_->get_num_orders();
     duration_seconds_ = module_->get_duration_seconds();
 
-    state_.channels.resize(static_cast<std::size_t>(module_->get_num_channels()));
+    state_.channels.resize(static_cast<std::size_t>(num_channels_));
+    state_.spectrum_bands.resize(kSpectrumBands, 0.0);
     update_state_locked();
 }
 
@@ -166,6 +245,26 @@ void Player::toggle_pause() {
         state_.paused = paused_;
     }
     pause_cv_.notify_all();
+}
+
+void Player::set_volume(double volume) {
+    std::lock_guard lock(state_mutex_);
+    volume_ = std::clamp(volume, 0.0, 1.0);
+}
+
+double Player::get_volume() const noexcept {
+    std::lock_guard lock(state_mutex_);
+    return volume_;
+}
+
+void Player::set_effect(AudioEffect effect) {
+    std::lock_guard lock(state_mutex_);
+    current_effect_ = effect;
+}
+
+AudioEffect Player::get_effect() const noexcept {
+    std::lock_guard lock(state_mutex_);
+    return current_effect_;
 }
 
 void Player::jump_to_order(int delta) {
@@ -370,6 +469,26 @@ void Player::playback_loop() {
             break;
         }
 
+        double current_volume = 0.0;
+        AudioEffect current_effect = AudioEffect::None;
+        {
+            std::lock_guard lock(state_mutex_);
+            current_volume = volume_;
+            current_effect = current_effect_;
+        }
+        if (current_volume != 1.0) {
+            for (long i = 0; i < frames_rendered * 2; ++i) {
+                buffer[static_cast<std::size_t>(i)] *= static_cast<float>(current_volume);
+            }
+        }
+        
+        if (current_effect != AudioEffect::None && audio_effects_) {
+            audio_effects_->apply_effects(buffer.data(), static_cast<std::size_t>(frames_rendered), current_effect);
+        }
+
+        update_spectrum(buffer.data(), static_cast<std::size_t>(frames_rendered * 2));
+        update_waveform(buffer.data(), static_cast<std::size_t>(frames_rendered * 2));
+
         PaError err = Pa_WriteStream(stream_, buffer.data(), frames_rendered);
         if (err != paNoError) {
             std::cerr << "PortAudio error: " << Pa_GetErrorText(err) << std::endl;
@@ -403,16 +522,64 @@ void Player::update_state_locked() {
     if (state_.channels.size() != static_cast<std::size_t>(channels)) {
         state_.channels.resize(static_cast<std::size_t>(channels));
     }
+    
+    if (channel_instruments_.size() != static_cast<std::size_t>(channels)) {
+        channel_instruments_.resize(static_cast<std::size_t>(channels), -1);
+    }
 
     for (int ch = 0; ch < channels; ++ch) {
         ChannelStatus &status = state_.channels[static_cast<std::size_t>(ch)];
-    status.vu_left = module_->get_current_channel_vu_left(ch);
-    status.vu_right = module_->get_current_channel_vu_right(ch);
+        status.vu_left = module_->get_current_channel_vu_left(ch);
+        status.vu_right = module_->get_current_channel_vu_right(ch);
 
         try {
             status.line = module_->format_pattern_row_channel(state_.pattern, state_.row, ch);
+            
+            int detected_ins = -1;
+            
+            if (status.line.length() >= 6) {
+                std::string ins_str = status.line.substr(4, 2);
+                
+                ins_str.erase(std::remove(ins_str.begin(), ins_str.end(), ' '), ins_str.end());
+                
+                if (!ins_str.empty() && ins_str != ".." && ins_str != "." && ins_str != "-") {
+                    try {
+                        try {
+                            detected_ins = std::stoi(ins_str, nullptr, 16);
+                        } catch (...) {
+                            try {
+                                detected_ins = std::stoi(ins_str, nullptr, 10);
+                            } catch (...) {
+                                detected_ins = -1;
+                            }
+                        }
+                        
+                        if (detected_ins > 0 && detected_ins <= static_cast<int>(instrument_names_.size())) {
+                            channel_instruments_[static_cast<std::size_t>(ch)] = detected_ins - 1;
+                        }
+                    } catch (...) {
+                    }
+                }
+            }
+            
+            double vu_level = std::max(std::abs(status.vu_left), std::abs(status.vu_right));
+            if (vu_level > 0.01 && channel_instruments_[static_cast<std::size_t>(ch)] >= 0) {
+                int ins_idx = channel_instruments_[static_cast<std::size_t>(ch)];
+                if (ins_idx < static_cast<int>(instrument_names_.size())) {
+                    status.instrument_index = ins_idx;
+                    status.instrument_name = instrument_names_[static_cast<std::size_t>(ins_idx)];
+                } else {
+                    status.instrument_index = -1;
+                    status.instrument_name.clear();
+                }
+            } else {
+                status.instrument_index = -1;
+                status.instrument_name.clear();
+            }
         } catch (...) {
             status.line = "--- .. .. ...";
+            status.instrument_index = -1;
+            status.instrument_name.clear();
         }
     }
 
@@ -478,5 +645,207 @@ void Player::update_state_locked() {
         }
     }
 }
+
+void Player::update_spectrum(const float* audio_data, std::size_t sample_count) {
+    std::lock_guard lock(spectrum_mutex_);
+
+    for (std::size_t i = 0; i < sample_count; i += 2) {
+        if (fft_write_pos_ < kFFTSize) {
+            float mono_sample = (audio_data[i] + audio_data[i + 1]) * 0.5f;
+            fft_buffer_[fft_write_pos_++] = std::complex<float>(mono_sample, 0.0f);
+        }
+    }
+
+    if (fft_write_pos_ < kFFTSize) {
+        return;
+    }
+
+    fft_write_pos_ = 0;
+
+    std::vector<std::complex<float>> windowed_buffer(kFFTSize);
+    for (std::size_t i = 0; i < kFFTSize; ++i) {
+        float window = 0.5f * (1.0f - std::cos(2.0f * std::numbers::pi_v<float> * static_cast<float>(i) / static_cast<float>(kFFTSize - 1)));
+        windowed_buffer[i] = fft_buffer_[i] * window;
+    }
+
+    fft(windowed_buffer);
+
+    std::vector<float> magnitudes(kFFTSize / 2);
+    for (std::size_t i = 0; i < kFFTSize / 2; ++i) {
+        magnitudes[i] = std::abs(windowed_buffer[i]);
+    }
+
+    spectrum_bands_.resize(kSpectrumBands);
+    const float freq_per_bin = static_cast<float>(sample_rate_) / static_cast<float>(kFFTSize);
+    const float min_freq = 20.0f;
+    const float max_freq = 20000.0f;
+    const float log_min = std::log10(min_freq);
+    const float log_max = std::log10(max_freq);
+    const float log_range = log_max - log_min;
+
+    for (std::size_t band = 0; band < kSpectrumBands; ++band) {
+        float band_start_log = log_min + (log_range * static_cast<float>(band) / static_cast<float>(kSpectrumBands));
+        float band_end_log = log_min + (log_range * static_cast<float>(band + 1) / static_cast<float>(kSpectrumBands));
+        float freq_start = std::pow(10.0f, band_start_log);
+        float freq_end = std::pow(10.0f, band_end_log);
+
+        std::size_t bin_start = static_cast<std::size_t>(freq_start / freq_per_bin);
+        std::size_t bin_end = static_cast<std::size_t>(freq_end / freq_per_bin);
+        bin_start = std::min(bin_start, static_cast<std::size_t>(kFFTSize / 2 - 1));
+        bin_end = std::min(bin_end, static_cast<std::size_t>(kFFTSize / 2));
+        
+        if (bin_end <= bin_start) {
+            bin_end = bin_start + 1;
+        }
+
+        float sum = 0.0f;
+        std::size_t count = 0;
+        for (std::size_t bin = bin_start; bin < bin_end; ++bin) {
+            sum += magnitudes[bin];
+            ++count;
+        }
+        float avg_magnitude = count > 0 ? sum / static_cast<float>(count) : 0.0f;
+
+        float normalized = avg_magnitude / static_cast<float>(kFFTSize);
+        normalized *= 2.5f;
+        float db_scale = normalized > 0.0f ? (20.0f * std::log10(normalized + 1e-6f) + 50.0f) / 50.0f : 0.0f;
+        db_scale = std::clamp(db_scale, 0.0f, 1.0f);
+
+        spectrum_bands_[band] = db_scale;
+    }
+
+    {
+        std::lock_guard state_lock(state_mutex_);
+        state_.spectrum_bands = spectrum_bands_;
+    }
 }
+
+void Player::update_waveform(const float* audio_data, std::size_t sample_count) {
+    std::lock_guard lock(waveform_mutex_);
+    
+    const std::size_t decimation = std::max<std::size_t>(1, sample_count / (kWaveformSize * 4));
+    
+    for (std::size_t i = 0; i < sample_count; i += decimation * 2) {
+        if (waveform_write_pos_ >= kWaveformSize) {
+            waveform_write_pos_ = 0;
+        }
+        
+        waveform_buffer_left_[waveform_write_pos_] = audio_data[i];
+        waveform_buffer_right_[waveform_write_pos_] = audio_data[i + 1];
+        ++waveform_write_pos_;
+        
+        if (waveform_write_pos_ >= kWaveformSize) {
+            break;
+        }
+    }
+    
+    {
+        std::lock_guard state_lock(state_mutex_);
+        state_.waveform_left = waveform_buffer_left_;
+        state_.waveform_right = waveform_buffer_right_;
+    }
+}
+
+bool Player::export_to_file(const ExportOptions& options, std::string& error_message) {
+    try {
+        bool was_playing = false;
+        {
+            std::lock_guard lock(state_mutex_);
+            was_playing = running_ && !paused_;
+            if (was_playing) {
+                paused_ = true;
+            }
+        }
+        
+        double saved_position;
+        double duration;
+        std::size_t total_samples;
+        
+        {
+            std::lock_guard module_lock(module_mutex_);
+            saved_position = module_->get_position_seconds();
+            duration = module_->get_duration_seconds();
+            total_samples = static_cast<std::size_t>(duration * options.sample_rate * options.channels);
+            module_->set_position_seconds(0.0);
+        }
+        
+        std::vector<float> audio_buffer;
+        audio_buffer.reserve(total_samples);
+        
+        const std::size_t chunk_size = 4096 * options.channels;
+        std::vector<float> chunk_buffer(chunk_size);
+        std::size_t samples_rendered = 0;
+        
+        while (samples_rendered < total_samples) {
+            std::size_t to_read = std::min(chunk_size, total_samples - samples_rendered);
+            std::size_t frames_to_read = to_read / options.channels;
+            
+            std::size_t frames_read;
+            {
+                std::lock_guard module_lock(module_mutex_);
+                frames_read = module_->read_interleaved_stereo(
+                    options.sample_rate, 
+                    frames_to_read, 
+                    chunk_buffer.data()
+                );
+            }
+            
+            if (frames_read == 0) {
+                break;
+            }
+            
+            for (std::size_t i = 0; i < frames_read * options.channels; ++i) {
+                chunk_buffer[i] *= static_cast<float>(volume_);
+            }
+            
+            if (current_effect_ != AudioEffect::None && audio_effects_) {
+                audio_effects_->apply_effects(chunk_buffer.data(), frames_read, current_effect_);
+            }
+            
+            audio_buffer.insert(audio_buffer.end(), 
+                              chunk_buffer.begin(), 
+                              chunk_buffer.begin() + frames_read * options.channels);
+            
+            samples_rendered += frames_read * options.channels;
+            
+            if (options.progress_callback) {
+                if (!options.progress_callback(samples_rendered, total_samples)) {
+                    error_message = "Export cancelled by user";
+                    
+                    {
+                        std::lock_guard module_lock(module_mutex_);
+                        module_->set_position_seconds(saved_position);
+                    }
+                    if (was_playing) {
+                        std::lock_guard lock(state_mutex_);
+                        paused_ = false;
+                        pause_cv_.notify_all();
+                    }
+                    return false;
+                }
+            }
+        }
+        
+        AudioExporter exporter;
+        bool success = exporter.export_audio(audio_buffer, options, error_message);
+        
+        {
+            std::lock_guard module_lock(module_mutex_);
+            module_->set_position_seconds(saved_position);
+        }
+        if (was_playing) {
+            std::lock_guard lock(state_mutex_);
+            paused_ = false;
+            pause_cv_.notify_all();
+        }
+        
+        return success;
+        
+    } catch (const std::exception& e) {
+        error_message = std::string("Export failed: ") + e.what();
+        return false;
+    }
+}
+
+} 
 
