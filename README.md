@@ -54,4 +54,4 @@ Key bindings inside the UI:
 
 ### TODO
 add crossplatform support (windows and mac)
-uhhh idk
+uhh idk
