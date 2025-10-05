@@ -42,7 +42,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: modtracker-${{ env.BUILD_TYPE }}
+          name: cli-modplayer-${{ env.BUILD_TYPE }}
           path: |
             ${{ env.BUILD_DIR }}/cli-modplayer
             ${{ env.BUILD_DIR }}/note_formatter_tests
