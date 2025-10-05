@@ -1,4 +1,4 @@
-# cli-tracker
+# cli-modplayer
 
 A console MOD tracker player for Linux inspired by tools like ProTracker. The app streams audio through PortAudio, loads songs with libopenmpt, and shows a live channel grid in the terminal using ncurses.
 [Watch the showcase video](https://www.youtube.com/watch?v=CXP1AppBVT4)
@@ -33,6 +33,9 @@ cmake --build build
 ./build/modtracker /path/to/song.mod
 ```
 
+Or you can download one of the prebuilt binaries in the "Releases"
+Or download one from GitHub workflow artifacts.
+
 Key bindings inside the UI:
 
 - `Space` — pause or resume playback
@@ -41,3 +44,8 @@ Key bindings inside the UI:
 - `PgUp` / `PgDn` (or `u` / `d`) — page through channel columns when the module has more than four channels
 - `N` — show or hide the info overlay
 - `Q` — quit the program
+
+
+### TODO
+add crossplatform support (windows and mac)
+uhhh idk
