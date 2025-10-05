@@ -44,5 +44,5 @@ jobs:
         with:
           name: modtracker-${{ env.BUILD_TYPE }}
           path: |
-            ${{ env.BUILD_DIR }}/modtracker
+            ${{ env.BUILD_DIR }}/cli-modplayer
             ${{ env.BUILD_DIR }}/note_formatter_tests
