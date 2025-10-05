@@ -34,6 +34,10 @@ cmake --build build
 ```sh
 ./build/modtracker /path/to/song.mod
 ```
+New thing: Simple mode
+```sh
+./build/modtracker /path/to/song.mod --simple
+It has no pattern view, only metadata, seekbar and some key bindings for comfortable use.
 
 Or you can download one of the prebuilt binaries in the "Releases"
 Or download one from GitHub workflow artifacts.
