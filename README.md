@@ -1,7 +1,7 @@
 # cli-modplayer
 
 A console MOD tracker player for Linux inspired by tools like ProTracker. The app streams audio through PortAudio, loads songs with libopenmpt, and shows a live channel grid in the terminal using ncurses.
-[Watch the showcase video](https://www.youtube.com/watch?v=CXP1AppBVT4)
+[Watch the showcase video](https://www.youtube.com/watch?v=P0_rXYO8r1w)
 ## Features
 
 - Plays the tracker formats handled by libopenmpt (`.mod`, `.xm`, `.s3m`, `.it`, ...). <img src="https://i.imgur.com/8BDyQc3.png" align="right" width="400">
