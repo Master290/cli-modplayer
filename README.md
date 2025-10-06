@@ -5,7 +5,7 @@ A console MOD tracker player for Linux inspired by tools like ProTracker. The ap
 ## Features
 
 - Plays the tracker formats handled by libopenmpt (`.mod`, `.xm`, `.s3m`, `.it`, ...).
-- Color grid with vertical channel panels that fall like in ProTracker, fitting the visible channels, paging through the rest, listing the next rows, and fading notes for earlier and upcoming beats.
+- Color grid with vertical channel panels that fall like in trackers, fitting the visible channels, paging through the rest, listing the next rows, and fading notes for earlier and upcoming beats.
 - Live VU bars above every column to display channel power with peak markers that decay over time.
 - Keyboard shortcuts for pause, order jumps, and fast row scrubbing.
 - Toggle overlay with tracker info, counts of instruments and samples, and a slice of the module message.
@@ -37,6 +37,7 @@ cmake --build build
 New thing: Simple mode
 ```sh
 ./build/modtracker /path/to/song.mod --simple
+```
 It has no pattern view, only metadata, seekbar and some key bindings for comfortable use.
 
 Or you can download one of the prebuilt binaries in the "Releases"
