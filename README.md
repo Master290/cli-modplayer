@@ -14,6 +14,17 @@ A console MOD tracker player for Linux inspired by tools like ProTracker. The ap
 
 <img src="https://i.imgur.com/lp31HsJ.png">
 
+## Install
+cli-modplayer is available on [AUR](https://aur.archlinux.org/packages/cli-modplayer). You can install it using this command:
+```sh
+yay -S cli-modplayer
+```
+or
+```sh
+paru -S cli-modplayer
+```
+For other Linux distributions you should build it yourself. Maybe later I will add it somewhere else, who knows
+
 ## Prerequisites
 
 Install packages with your distro manager. Example for Debian and Ubuntu systems:
@@ -32,11 +43,11 @@ cmake --build build
 ## Run
 
 ```sh
-./build/modtracker /path/to/song.mod
+./build/cli-modtracker /path/to/song.mod
 ```
 New thing: Simple mode
 ```sh
-./build/modtracker /path/to/song.mod --simple
+./build/cli-modtracker /path/to/song.mod --simple
 ```
 It has no pattern view, only metadata, seekbar and some key bindings for comfortable use.
 
