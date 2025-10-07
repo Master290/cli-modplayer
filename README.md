@@ -1,12 +1,12 @@
 # cli-modplayer
 
-A console MOD tracker player for Linux inspired by tools like ProTracker. The app streams audio through PortAudio, loads songs with libopenmpt, and shows a live channel grid in the terminal using FTXUI.
+A console Module player (.mod, .xm, .s3m, .it etc.) for Linux inspired by tools like ProTracker. The app streams audio through PortAudio, loads songs with libopenmpt, and shows a live channel grid in the terminal using FTXUI.
 [Watch the showcase video](https://www.youtube.com/watch?v=P0_rXYO8r1w)
 ## Features
 
 - Plays the tracker formats handled by libopenmpt (`.mod`, `.xm`, `.s3m`, `.it`, ...).
 - Color grid with vertical channel panels that fall like in trackers, fitting the visible channels, paging through the rest, listing the next rows, and fading notes for earlier and upcoming beats.
-- Live VU bars above every column to display channel power with peak markers that decay over time.
+- Live VU bars above every column to display channel power with.
 - Keyboard shortcuts for pause, order jumps, and fast row scrubbing.
 - Toggle overlay with tracker info, counts of instruments and samples, and a slice of the module message.
 - Gentle status strip that confirms actions without covering the pattern view.
